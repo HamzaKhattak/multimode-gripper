@@ -1,0 +1,85 @@
+import pyrealsense2 as rs
+import cv2
+import numpy as np
+import time
+# Create a pipeline
+pipeline = rs.pipeline()
+config = rs.config()
+
+
+class RealsenseCam:
+    def __init__(self):
+        self.pipeline = rs.pipeline()
+        self.config = rs.config()
+        self._maybe_reset_realsense()
+        self.config.enable_stream(rs.stream.depth, 640, 480, rs.format.z16, 30)
+        self.config.enable_stream(rs.stream.color, 1280, 720, rs.format.bgr8, 30)
+        self.pipeline.start(self.config)
+
+    def _maybe_reset_realsense() -> None:
+        '''
+        When the RealSense camera is in a bad state from a previous run it may fail to start so we need to reset
+        '''
+        if rs is None:
+            return
+        try:
+            ctx = rs.context()
+            for dev in ctx.query_devices():
+                dev.hardware_reset()
+            time.sleep(1.0)
+        except Exception:
+            # Reset is best-effort only.
+            pass
+
+    def grab_frames(self) -> (np.ndarray, np.ndarray):
+        '''
+        Grabs a pair of depth and color frames from the RealSense camera. Returns None, None if frames cannot be grabbed.
+        '''
+        frames = self.pipeline.wait_for_frames()
+        depth_frame = frames.get_depth_frame()
+        color_frame = frames.get_color_frame()
+
+        if not depth_frame or not color_frame:
+            return None, None
+
+        depth_image = np.asanyarray(depth_frame.get_data())
+        color_image = np.asanyarray(color_frame.get_data())
+        return depth_image, color_image
+
+    def _normalizeImg(img,low,high):
+        '''
+        Normalizes the input image to the range [0, 255] based on the provided low and high values.'''
+        imgClip = np.clip(img, low, high)
+        maxVal = np.max(imgClip)
+        minVal = np.min(imgClip)
+        return np.uint8((255.)/(maxVal-minVal)*(imgClip-maxVal)+255.)
+
+
+    def display_realsense(self):
+        ''' Continuously grabs frames from the RealSense camera and displays the color and depth streams. Press 'q' to quit. 
+        '''
+        try:
+            while True:
+                # Wait for a coherent pair of frames
+                frames = self.pipeline.wait_for_frames()
+                depth_frame = frames.get_depth_frame()
+                color_frame = frames.get_color_frame()
+
+                if not depth_frame or not color_frame:
+                    continue
+
+                # Convert images to numpy arrays
+                depth_image = np.asanyarray(depth_frame.get_data())
+                color_image = np.asanyarray(color_frame.get_data())
+
+                # Display the images
+                cv2.imshow('Color Stream', color_image)
+                cv2.imshow('Depth Stream', self._normalizeImg(depth_image, 500, 850))
+
+                # Press 'q' to quit
+                if cv2.waitKey(1) & 0xFF == ord('q'):
+                    break
+
+        finally:
+            pipeline.stop()
+            cv2.destroyAllWindows()
