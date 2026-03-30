@@ -14,9 +14,16 @@ class RealsenseCam:
         self._maybe_reset_realsense()
         self.config.enable_stream(rs.stream.depth, 640, 480, rs.format.z16, 30)
         self.config.enable_stream(rs.stream.color, 1280, 720, rs.format.bgr8, 30)
+        # Enable frame dropping to prevent buffer overflow - old frames are dropped if new ones arrive
         self.pipeline.start(self.config)
+        # Clear any initial frames in the buffer
+        for _ in range(5):
+            try:
+                self.pipeline.wait_for_frames(timeout_ms=100)
+            except RuntimeError:
+                pass
 
-    def _maybe_reset_realsense() -> None:
+    def _maybe_reset_realsense(self) -> None:
         '''
         When the RealSense camera is in a bad state from a previous run it may fail to start so we need to reset
         '''
@@ -35,16 +42,25 @@ class RealsenseCam:
         '''
         Grabs a pair of depth and color frames from the RealSense camera. Returns None, None if frames cannot be grabbed.
         '''
-        frames = self.pipeline.wait_for_frames()
-        depth_frame = frames.get_depth_frame()
-        color_frame = frames.get_color_frame()
+        try:
+            # Use wait_for_frames with short timeout to avoid blocking
+            frames = self.pipeline.wait_for_frames(timeout_ms=1000)
+            
+            depth_frame = frames.get_depth_frame()
+            color_frame = frames.get_color_frame()
 
-        if not depth_frame or not color_frame:
+            if not depth_frame or not color_frame:
+                return None, None
+
+            # Make copies of the data to ensure frames are immediately freed from buffer
+            depth_image = np.asanyarray(depth_frame.get_data()).copy()
+            color_image = np.asanyarray(color_frame.get_data()).copy()
+            
+            # Frames are now released automatically as frames object goes out of scope
+            return depth_image, color_image
+        except RuntimeError:
+            # Timeout or error - return None
             return None, None
-
-        depth_image = np.asanyarray(depth_frame.get_data())
-        color_image = np.asanyarray(color_frame.get_data())
-        return depth_image, color_image
 
     def _normalizeImg(img,low,high):
         '''

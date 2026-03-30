@@ -5,45 +5,58 @@ import argparse
 from PIL import Image
 import realsense_cam
 
-
-def load_charuco_board_from_json(board_config_path: string) -> cv2.aruco.CharucoBoard:
+def load_charuco_board_from_json(board_config_path: str) -> cv2.aruco.CharucoBoard:
     with open(board_config_path, "r", encoding="utf-8") as f:
         cfg = json.load(f)
 
     dictionary = cv2.aruco.getPredefinedDictionary(cfg["aruco_dictionary_id"])
     board = cv2.aruco.CharucoBoard(
-        (cfg["squares_vertically"], cfg["squares_horizontally"]),
-        cfg["square_length"],
-        cfg["marker_length"],
+        (cfg["squares_horizontally"], cfg["squares_vertically"]),
+        float(cfg["square_length"]),
+        float(cfg["marker_length"]),
         dictionary,
     )
     return board
 
-def display_image_with_charuco_overlay(color_image, charuco_board,capture_count=0):
+def display_image_with_charuco_overlay(color_image, charuco_board, capture_count=0):
     display = color_image.copy()
     gray = cv2.cvtColor(color_image, cv2.COLOR_BGR2GRAY)
-    corners, ids, _ = cv2.aruco.detectMarkers(gray, charuco_board.dictionary)
 
-    if charuco_corners is not None and charuco_ids is not None and len(charuco_ids) > 0:
-        cv2.aruco.drawDetectedCornersCharuco(display, charuco_corners, charuco_ids)
-        cv2.aruco.drawDetectedMarkers(display, corners, ids)
+    params = cv2.aruco.DetectorParameters()
+    detector = cv2.aruco.ArucoDetector(charuco_board.getDictionary(), params)
+    corners, ids, _ = detector.detectMarkers(gray)
+    charuco_corners, charuco_ids = None, None
+    if corners is not None and ids is not None and len(ids) > 0:
+        corners = [np.ascontiguousarray(c).copy() for c in corners]
+        ids = np.ascontiguousarray(ids).copy()
         _, charuco_corners, charuco_ids = cv2.aruco.interpolateCornersCharuco(
             corners, ids, gray, charuco_board
         )
+
+    if corners is not None and ids is not None and len(ids) > 0:
+        cv2.aruco.drawDetectedMarkers(display, corners, ids)
+
+    if charuco_corners is not None and charuco_ids is not None:
+        cv2.aruco.drawDetectedCornersCharuco(display, charuco_corners, charuco_ids)
+
+    charuco_count = 0 if charuco_ids is None else len(charuco_ids)
+    
     cv2.putText(display, f"Captures: {capture_count} | c=capture  q=calibrate",
                 (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
+    cv2.putText(display, f"Charuco corners: {charuco_count}",
+                (10, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 200, 255), 2)
     cv2.imshow("Charuco Calibration", display)
-    return display, corners, ids, charuco_corners, charuco_ids
+    return display, charuco_corners, charuco_ids
+    
 
 def calibrate_camera_charuco(board_config_path="charuco_board.json"):
     charuco_board = load_charuco_board_from_json(board_config_path)
-    all_corners = []
-    all_ids = []
     all_charuco_corners = []
     all_charuco_ids = []
     all_images = []
     cam = realsense_cam.RealsenseCam()
     capture_count = 0
+    image_size = None
 
     print("Press 'c' to capture a frame, 'q' to finish and calibrate.")
 
@@ -51,32 +64,44 @@ def calibrate_camera_charuco(board_config_path="charuco_board.json"):
         depth_image, color_image = cam.grab_frames()
         if depth_image is None or color_image is None:
             continue
-        display, corners, ids, charuco_corners, charuco_ids = display_image_with_charuco_overlay(color_image, charuco_board, capture_count)
+        
+        # Small delay to prevent overwhelming the camera hardware
+        #time.sleep(0.01)  # 10ms delay between frame grabs
+        
+        # Capture image dimensions from first frame
+        if image_size is None:
+            gray = cv2.cvtColor(color_image, cv2.COLOR_BGR2GRAY)
+            image_size = gray.shape[::-1]
+        
+        display, charuco_corners, charuco_ids = display_image_with_charuco_overlay(color_image, charuco_board, capture_count)
         key = cv2.waitKey(1) & 0xFF
         if key == ord('c'):
-            if ids is not None and len(ids) > 0:
-                #Append all of the captured data to storage arrays for later calibration
-                all_images.append([color_image,depth_image])
-                all_corners.append(corners)
-                all_ids.append(ids)
+            if charuco_corners is not None and charuco_ids is not None and len(charuco_ids) >= 4:
+                # Make explicit deep copies of image data to completely decouple from camera buffer
+                color_copy = color_image.copy()
+                depth_copy = depth_image.copy()
+                
+                # Store the copied data
+                all_images.append([color_copy, depth_copy])
                 all_charuco_corners.append(charuco_corners)
                 all_charuco_ids.append(charuco_ids)
 
                 capture_count += 1
                 print(f"Captured frame {capture_count}")
             else:
-                print("No markers detected, frame not captured.")
+                charuco_count = 0 if charuco_ids is None else len(charuco_ids)
+                print(f"Insufficient ChArUco detections (charuco={charuco_count}), frame not captured.")
         elif key == ord('q'):
             cv2.destroyAllWindows()
             break
 
-    if len(all_corners) < 1:
+    if len(all_charuco_corners) < 1:
         raise ValueError("Not enough valid frames for calibration")
 
     ret, camera_matrix, dist_coeffs, rvecs, tvecs = cv2.aruco.calibrateCameraCharuco(
-        all_corners, all_ids, charuco_board, gray.shape[::-1], None, None
+        all_charuco_corners, all_charuco_ids, charuco_board, image_size, None, None
     )
-    return camera_matrix, dist_coeffs, all_images, [all_corners, all_ids, all_charuco_corners, all_charuco_ids]
+    return camera_matrix, dist_coeffs, all_images, [all_charuco_corners, all_charuco_ids]
 
 def create_and_save_new_board(
     squares_vertically,
@@ -85,14 +110,14 @@ def create_and_save_new_board(
     marker_length,
     im_save_path="charuco_board.png",
     board_config_path="charuco_board.json",
-    aruco_dictionary_id=cv2.aruco.DICT_4X4_100,
+    aruco_dictionary_id=cv2.aruco.DICT_6X6_250,
 ):
     '''
     Creates a new charuco board with the specified parameters, saves the board image and configuration for later use in calibration
     Note that this prints the board as a raster so generally better to use the online calib.io tool
     '''
     dictionary = cv2.aruco.getPredefinedDictionary(aruco_dictionary_id) #DICT_4X4_50, DICT_5X5_100, DICT_6X6_250, DICT_7X7_1000
-    board = cv2.aruco.CharucoBoard((squares_vertically, squares_horizontally), square_length, marker_length, dictionary)
+    board = cv2.aruco.CharucoBoard((squares_horizontally, squares_vertically), square_length, marker_length, dictionary)
 
     board_cfg = {
         "squares_vertically": squares_vertically,
@@ -115,7 +140,7 @@ def save_calibration_data(save_dir, all_images, calibration_data, camera_matrix,
     import os
     os.makedirs(save_dir, exist_ok=True)
     
-    all_corners, all_ids, all_charuco_corners, all_charuco_ids = calibration_data
+    all_charuco_corners, all_charuco_ids = calibration_data
     
     # Save images as TIFF stacks
     color_images = [Image.fromarray(cv2.cvtColor(color, cv2.COLOR_BGR2RGB)) for color, _ in all_images]
@@ -136,8 +161,6 @@ def save_calibration_data(save_dir, all_images, calibration_data, camera_matrix,
     # Save calibration data as JSON
     calibration_dict = {
         "num_frames": len(all_images),
-        "corners": [c.tolist() if hasattr(c, 'tolist') else c for c in all_corners],
-        "ids": [i.tolist() if hasattr(i, 'tolist') else i for i in all_ids],
         "charuco_corners": [cc.tolist() if hasattr(cc, 'tolist') else cc for cc in all_charuco_corners],
         "charuco_ids": [ci.tolist() if hasattr(ci, 'tolist') else ci for ci in all_charuco_ids]
     }
@@ -152,10 +175,10 @@ def save_calibration_data(save_dir, all_images, calibration_data, camera_matrix,
     fs.write("distortion_coefficients", dist_coeffs)
     fs.release()
     
-    print(f"✓ Color images saved to: {os.path.join(save_dir, 'color_images.tiff')}")
-    print(f"✓ Depth images saved to: {os.path.join(save_dir, 'depth_images.tiff')}")
-    print(f"✓ Calibration data saved to: {os.path.join(save_dir, 'calibration_data.json')}")
-    print(f"✓ Camera intrinsics saved to: {intrinsics_path}")
+    print(f"Color images saved to: {os.path.join(save_dir, 'color_images.tiff')}")
+    print(f"Depth images saved to: {os.path.join(save_dir, 'depth_images.tiff')}")
+    print(f"Calibration data saved to: {os.path.join(save_dir, 'calibration_data.json')}")
+    print(f"Camera intrinsics saved to: {intrinsics_path}")
 
 
 def main():
