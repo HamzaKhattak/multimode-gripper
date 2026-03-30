@@ -98,12 +98,10 @@ def capture_handeye(board_config_path, poses_path):
             continue
 
         time.sleep(1.0)  # Give the robot time to settle before capture.
-        _, corners, ids, charuco_corners, charuco_ids = camera_calibrate.display_image_with_charuco_overlay(
+        _ , charuco_corners, charuco_ids = camera_calibrate.display_image_with_charuco_overlay(
             color_image, charuco_board, capture_count
         )
 
-        all_corners.append(corners)
-        all_ids.append(ids)
         all_charuco_corners.append(charuco_corners)
         all_charuco_ids.append(charuco_ids)
         all_images.append([color_image, depth_image])
