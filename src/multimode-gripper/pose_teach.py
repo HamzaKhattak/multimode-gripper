@@ -52,7 +52,7 @@ def main() -> None:
     '''
     Capture the series of poses
     '''
-    poses = [['flange_pose', 'joint_states']]
+    poses = []
 
     print("Move the robot to the desired pose and press 's' to save the pose, 'q' to finish.")
     while True:

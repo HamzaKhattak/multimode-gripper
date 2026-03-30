@@ -2,6 +2,7 @@ from pyAgxArm import create_agx_arm_config, AgxArmFactory
 import warnings
 import time
 warnings.filterwarnings("ignore", category=DeprecationWarning) #Due to Chinese text in docstring of pyAgxArm
+
 cfg = create_agx_arm_config(robot="piper", comm="can", channel="can0")
 print(cfg)
 robot = AgxArmFactory.create_arm(cfg)
@@ -32,6 +33,7 @@ robot.set_speed_percent(10)
 
 robot.set_payload(robot.OPTIONS.PAYLOAD.FULL)
 
+
 def move_and_wait(robot, new_flange_pose):
     robot.move_p(new_flange_pose)
     start_t = time.monotonic()
@@ -45,6 +47,10 @@ def move_and_wait(robot, new_flange_pose):
             print("timeout（20s）")
             break
         time.sleep(0.1)
+
+'''
+
+
 #move_and_wait(robot, new_flange_pose)
 #move_and_wait(robot, newer_flange_pose)
 
@@ -52,3 +58,4 @@ end_effector.move_gripper(width=0.06, force=1.0)
 time.sleep(1.0)
 
 end_effector.move_gripper(width=0.02, force=1.0)
+'''

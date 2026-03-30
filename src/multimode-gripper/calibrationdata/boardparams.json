@@ -1,0 +1,7 @@
+{
+  "squares_vertically": 5,
+  "squares_horizontally": 7,
+  "square_length": 33,
+  "marker_length": 26,
+  "aruco_dictionary": "DICT_4X4_100"
+}
