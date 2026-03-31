@@ -57,8 +57,8 @@ def main() -> None:
     while True:
         depth_image, color_image = cam.grab_frames()
         display = color_image.copy()
-        flange_pose = robot.get_flange_pose()
-        joint_states = robot.get_joint_angles()
+        flange_pose = robot.get_flange_pose().msg
+        joint_states = robot.get_joint_angles().msg
         if depth_image is None or color_image is None or flange_pose is None or joint_states is None:
             continue
         cv2.imshow("Charuco Calibration", display)

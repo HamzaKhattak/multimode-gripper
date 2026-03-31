@@ -8,10 +8,10 @@ dependencies = [
     "opencv-contrib-python>=4.13.0.92",
     "piper-sdk>=0.6.1",
     "pyagxarm",
-    "pybullet>=3.2.7",
     "pyrealsense2>=2.56.5.9235",
     "PyQt6>=6.0.0",
     "fonttools>=4.0.0",
+    "pillow>=12.1.1",
 ]
 
 [tool.uv.sources]

@@ -65,6 +65,8 @@ def capture_handeye(board_config_path, poses_path):
     robot.connect()
     time.sleep(0.5)
     print("robotic arm is_ok =", robot.is_ok())
+    robot.enable()
+    robot.set_speed_percent(10)
 
     # load charuco board configuration and initialize storage arrays
     charuco_board = camera_calibrate.load_charuco_board_from_json(board_config_path)
@@ -83,6 +85,8 @@ def capture_handeye(board_config_path, poses_path):
     read_poses = []  # Store robot's actual poses for hand-eye calibration
     total_poses = len(poses)
     capture_count = 0
+    move_commanded = False
+    motion_start_t = None
 
     while capture_count < total_poses:
         # Capture frames continuously while moving robot through predefined poses.
@@ -91,10 +95,22 @@ def capture_handeye(board_config_path, poses_path):
             continue
 
         camera_calibrate.display_image_with_charuco_overlay(color_image, charuco_board, capture_count)
-        move_complete = robot.get_arm_status().msg.motion_status
+        if not move_commanded:
+            target_pose = poses[capture_count][0] if isinstance(poses[capture_count], list) and len(poses[capture_count]) > 0 else poses[capture_count]
+            robot.move_l(target_pose)
+            move_commanded = True
+            motion_start_t = time.monotonic()
+            continue
 
+        arm_status = robot.get_arm_status()
+        if arm_status is None:
+            continue
+
+        move_complete = arm_status.msg.motion_status == 0
         if not move_complete:
-            robot.move_l(poses[capture_count][0])
+            if motion_start_t is not None and (time.monotonic() - motion_start_t) > 20.0:
+                print(f"Motion timeout at pose {capture_count + 1}, retrying move command.")
+                move_commanded = False
             continue
 
         time.sleep(1.0)  # Give the robot time to settle before capture.
@@ -102,12 +118,22 @@ def capture_handeye(board_config_path, poses_path):
             color_image, charuco_board, capture_count
         )
 
+        flange_pose = robot.get_flange_pose()
+        joint_angles = robot.get_joint_angles()
+        if flange_pose is None or joint_angles is None:
+            print(f"Skipping pose {capture_count + 1}: failed to read robot state.")
+            move_commanded = False
+            motion_start_t = None
+            continue
+
         all_charuco_corners.append(charuco_corners)
         all_charuco_ids.append(charuco_ids)
         all_images.append([color_image, depth_image])
-        read_poses.append([robot.get_flange_pose(), robot.get_joint_angles()])
+        read_poses.append([flange_pose.msg, joint_angles.msg])
 
         capture_count += 1
+        move_commanded = False
+        motion_start_t = None
         print(f"Captured pose {capture_count}/{total_poses}")
 
         if cv2.waitKey(1) & 0xFF == ord("q"):
