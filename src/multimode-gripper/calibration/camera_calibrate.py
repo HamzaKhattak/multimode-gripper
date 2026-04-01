@@ -3,7 +3,7 @@ import numpy as np
 import json
 import argparse
 from PIL import Image
-import realsense_cam
+from .. import realsense_cam
 
 def load_charuco_board_from_json(board_config_path: str) -> cv2.aruco.CharucoBoard:
     with open(board_config_path, "r", encoding="utf-8") as f:
