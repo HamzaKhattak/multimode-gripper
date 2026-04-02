@@ -20,13 +20,13 @@ def parse_args() -> argparse.Namespace:
         )
     )
     parser.add_argument(
-        "-- output-json",
+        "--output-json",
         type=Path,
         required=True,
         help="What file to save the poses to",
     )
     parser.add_argument(
-        "-- overwrite-existing",
+        "--overwrite-existing",
         type = bool,
         required=False,
         default=False,
@@ -66,12 +66,16 @@ def main() -> None:
                 (10, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 200, 255), 2)        
         key = cv2.waitKey(1) & 0xFF
         if key == ord('s'):
-            if flange_pose is not None:
-                poses.append([flange_pose, joint_states])
-                print(f"Pose {pose_num} captured.")
+            if flange_pose is not None and joint_states is not None:
+                # Convert to lists to capture current values (not references)
+                pose_list = list(flange_pose) if hasattr(flange_pose, '__iter__') else [flange_pose]
+                joint_list = list(joint_states) if hasattr(joint_states, '__iter__') else [joint_states]
+                print(f"Captured pose: {pose_list}")
+                poses.append([pose_list, joint_list])
+                print(f"Pose {pose_num} saved.")
                 pose_num += 1
             else:
-                print("Failed to get flange pose.")
+                print("Failed to get flange pose or joint states.")
         elif key == ord('q'):
             cv2.destroyAllWindows()
             break

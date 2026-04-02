@@ -10,9 +10,9 @@ import time
 warnings.filterwarnings("ignore", category=DeprecationWarning) #Due to Chinese text in docstring of pyAgxArm
 import cv2
 
-from .. import realsense_cam
-from .. import robot_motion
-import camera_calibrate
+from multimode_gripper import realsense_cam
+from multimode_gripper import robot_motion
+from multimode_gripper.calibration import camera_calibrate
 
 def _to_serializable(values):
     serializable = []
@@ -63,6 +63,7 @@ def capture_handeye(board_config_path, poses_path):
     # connect to arm
     robot_mot = robot_motion.RobotMotion()
     robot = robot_mot.robot
+    robot.set_speed_percent(30)
 
     # load charuco board configuration and initialize storage arrays
     charuco_board = camera_calibrate.load_charuco_board_from_json(board_config_path)
@@ -81,6 +82,13 @@ def capture_handeye(board_config_path, poses_path):
     read_poses = []  # Store robot's actual poses for hand-eye calibration
     total_poses = len(poses)
     capture_count = 0
+    
+    # State machine for calibration process
+    STATE_MOVING = 0
+    STATE_SETTLING = 1
+    STATE_CAPTURING = 2
+    state = STATE_MOVING
+    settle_start_time = None
 
     while capture_count < total_poses:
         # Capture frames continuously while moving robot through predefined poses.
@@ -90,10 +98,23 @@ def capture_handeye(board_config_path, poses_path):
 
         camera_calibrate.display_image_with_charuco_overlay(color_image.copy(), charuco_board, capture_count)
 
-        move_complete = robot_mot.move_non_blocking(poses[capture_count][0])  # Move to next pose non-blocking  
-        if move_complete:
-            time.sleep(1.0)  # Give the robot time to settle before capture.
-            _ , charuco_corners, charuco_ids = camera_calibrate.display_image_with_charuco_overlay(
+        if state == STATE_MOVING:
+            # Send move command and check if movement is complete
+            move_complete = robot_mot.move_non_blocking(poses[capture_count][0])
+            if move_complete:
+                print(f"Robot reached pose {capture_count + 1}/{total_poses}")
+                state = STATE_SETTLING
+                settle_start_time = time.time()
+                
+        elif state == STATE_SETTLING:
+            # Wait for robot to settle
+            if time.time() - settle_start_time >= 2.0:  # 2 second settling time
+                print(f"Robot settled at pose {capture_count + 1}, capturing...")
+                state = STATE_CAPTURING
+                
+        elif state == STATE_CAPTURING:
+            # Capture calibration data
+            _, charuco_corners, charuco_ids = camera_calibrate.display_image_with_charuco_overlay(
                 color_image, charuco_board, capture_count
             )
 
@@ -101,17 +122,22 @@ def capture_handeye(board_config_path, poses_path):
             joint_angles = robot.get_joint_angles()
             if flange_pose is None or joint_angles is None:
                 print(f"Skipping pose {capture_count + 1}: failed to read robot state.")
-                move_commanded = False
-                motion_start_t = None
+                state = STATE_MOVING  # Try again
                 continue
 
-            all_charuco_corners.append(charuco_corners)
-            all_charuco_ids.append(charuco_ids)
-            all_images.append([color_image, depth_image])
-            read_poses.append([flange_pose.msg, joint_angles.msg])
+            all_charuco_corners.append(charuco_corners.copy())
+            all_charuco_ids.append(charuco_ids.copy())
+            all_images.append([color_image.copy(), depth_image.copy()])
+            read_poses.append([flange_pose.msg.copy(), joint_angles.msg.copy()])
 
             capture_count += 1
             print(f"Captured pose {capture_count}/{total_poses}")
+            
+            # Move to next pose
+            if capture_count < total_poses:
+                state = STATE_MOVING
+            else:
+                break  # All poses captured
 
         if cv2.waitKey(1) & 0xFF == ord("q"):
             break

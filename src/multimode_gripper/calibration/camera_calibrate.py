@@ -99,8 +99,7 @@ def calibrate_camera_charuco(board_config_path="charuco_board.json"):
         raise ValueError("Not enough valid frames for calibration")
 
     ret, camera_matrix, dist_coeffs, rvecs, tvecs = cv2.aruco.calibrateCameraCharuco(
-        all_charuco_corners, all_charuco_ids, charuco_board, image_size, None, None
-    )
+        all_charuco_corners, all_charuco_ids, charuco_board, image_size, None, None)
     return camera_matrix, dist_coeffs, all_images, [all_charuco_corners, all_charuco_ids]
 
 def create_and_save_new_board(

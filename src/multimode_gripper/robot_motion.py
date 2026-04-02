@@ -31,7 +31,7 @@ class RobotMotion:
 
 
     def move_and_wait(self, new_flange_pose):
-        self.robot.move_l(new_flange_pose)
+        self.robot.move_p(new_flange_pose)
         start_t = time.monotonic()
         time.sleep(0.1)
         while True:
@@ -50,12 +50,31 @@ class RobotMotion:
         Returns True when the robot has finished moving, False while still in motion.
         """
         if new_flange_pose != self._last_commanded_pose:
-            self.robot.move_l(new_flange_pose)
+            print(f"Sending move command to pose: {new_flange_pose}")
+            self.robot.move_p(new_flange_pose)
             self._last_commanded_pose = new_flange_pose
+            self._movement_in_progress = True  # Mark that we sent a move command
+            return False  # Movement just started, not complete yet
 
         status = self.robot.get_arm_status()
-        if status is not None and status.msg.motion_status == 0:
-            return True
+        if status is not None:
+            motion_status = status.msg.motion_status
+            # Debug: print status occasionally
+            if hasattr(self, '_debug_count'):
+                self._debug_count += 1
+            else:
+                self._debug_count = 0
+            
+            if self._debug_count % 500 == 0:  # Print every 500 calls
+                print(f"Robot motion status: {motion_status}")
+            
+            # Wait for movement to complete (motion_status == 0 AND we had movement in progress)
+            if motion_status == 0 and getattr(self, '_movement_in_progress', False):
+                print("Movement completed!")
+                self._movement_in_progress = False
+                return True
+        else:
+            print("Could not get robot status")
         return False
 
     def get_gripper_wf(self):
