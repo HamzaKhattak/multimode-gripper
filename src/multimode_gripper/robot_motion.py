@@ -27,7 +27,7 @@ class RobotMotion:
         self._last_commanded_gripper_pos = None
         self.gripper_path = []
         self.time_track = time.perf_counter()
-        self.minmove_correction = 0
+        self.distance_to_move_correction = 0
 
 
     def move_and_wait(self, new_flange_pose):
@@ -98,9 +98,9 @@ class RobotMotion:
         Should be called in a loop until it returns True, which indicates the target position or force has been reached.
         Returns true when the target position is reached, False otherwise. Also returns the position and force for logging purposes.
         '''
-        #If this is the first call to the function, need to reset the timer and move correction
-        if self._last_commanded_gripper_pos == target_position:
-            self.time_track = time.perf_counter() #Reset the timer if it is the first time calling a move to this target position
+        # If this is the first call for this target, reset timing and correction state.
+        if self._last_commanded_gripper_pos != target_position:
+            self.time_track = time.perf_counter()
             self._last_commanded_gripper_pos = target_position
             self.distance_to_move_correction = 0
 
@@ -116,21 +116,25 @@ class RobotMotion:
         dt = current_time - self.time_track
         self.time_track = current_time
         distance_to_move_uncorrected = speed * dt
+        proposed_move = distance_to_move_uncorrected + self.distance_to_move_correction
 
-        #If the distance to move is greater than the distance to the target, we can just move to the target and be done.
-        if distance_to_move_uncorrected <= distance_to_target:
+        # Snap to target if the proposed step would overshoot.
+        if proposed_move >= distance_to_target:
             distance_to_move = distance_to_target
             self.distance_to_move_correction = 0
 
-        #If the distance to move is larger than the minimum move threshold, we can move the full delta.
-        elif distance_to_move_uncorrected > min_move:
-            distance_to_move = distance_to_move_uncorrected
+        # Otherwise move once we exceed the controller's minimum commandable move.
+        elif proposed_move >= min_move:
+            distance_to_move = proposed_move
             self.distance_to_move_correction = 0
 
-        #If the distance to move is smaller, we keep track and add it to the next move until it exceeds the minimum move threshold. This is to avoid very small movements.
-        elif distance_to_move_uncorrected < min_move:
-            self.distance_to_move_correction += self.distance_to_move_correction
+        # Accumulate sub-threshold increments for a later command.
+        else:
+            self.distance_to_move_correction = proposed_move
             distance_to_move = 0
+
+        if distance_to_move == 0:
+            return False, current_position, current_force
         
         #Find where to move
         if current_position < target_position:

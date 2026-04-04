@@ -2,14 +2,9 @@ import cv2
 import numpy as np
 import serial
 import time
-capwidth = 1280
-capheight = 720
-finalframesize = 512
-
-exposuretime = 50
 
 class SensorCamera:
-    def __init__(self,serial_port="/dev/ttyUSB0", baud_rate=115200):
+    def __init__(self,serial_port="/dev/ttyUSB0", baud_rate=115200,capwidth=1280,capheight=720,exposuretime=100):
         self.cam = cv2.VideoCapture(-1)
         self.cam.set(cv2.CAP_PROP_SETTINGS, 0)
         self.cam.set(cv2.CAP_PROP_FRAME_WIDTH,capwidth)
@@ -48,3 +43,4 @@ class SensorCamera:
         '''
         ret, frame = self.cam.read()
         return frame
+    
