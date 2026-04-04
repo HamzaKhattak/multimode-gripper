@@ -31,6 +31,7 @@ dependencies = [
     { name = "pyagxarm" },
     { name = "pyqt6" },
     { name = "pyrealsense2" },
+    { name = "pyserial" },
 ]
 
 [package.metadata]
@@ -42,6 +43,7 @@ requires-dist = [
     { name = "pyagxarm", git = "https://github.com/agilexrobotics/pyAgxArm.git" },
     { name = "pyqt6", specifier = ">=6.0.0" },
     { name = "pyrealsense2", specifier = ">=2.56.5.9235" },
+    { name = "pyserial", specifier = ">=3.5" },
 ]
 
 [[package]]
@@ -204,6 +206,15 @@ source = { registry = "https://pypi.org/simple" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/e0/df/3060d064e6dd6bdbf6898973ff6c2401b3978b90d711cd9d96665af95e73/pyrealsense2-2.57.7.10387-cp313-cp313-manylinux1_x86_64.whl", hash = "sha256:b98878f5e2b581819d669c11b9262b7313b007b6e4d42bc36d1dad22ce08ba28", size = 11615127, upload-time = "2026-03-25T11:38:52.842Z" },
     { url = "https://files.pythonhosted.org/packages/ad/6e/2e84b095dc7c9ec5deeeb7cef3a345cd0b5a8544abe2988fbf257574d0fd/pyrealsense2-2.57.7.10387-cp313-cp313-win_amd64.whl", hash = "sha256:ee4d1a1399bbe8b474a4f690c19180307bbcd313bbb19f492643cb0f4eb6c501", size = 8127007, upload-time = "2026-03-25T11:39:11.678Z" },
+]
+
+[[package]]
+name = "pyserial"
+version = "3.5"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/1e/7d/ae3f0a63f41e4d2f6cb66a5b57197850f919f59e558159a4dd3a818f5082/pyserial-3.5.tar.gz", hash = "sha256:3c77e014170dfffbd816e6ffc205e9842efb10be9f58ec16d3e8675b4925cddb", size = 159125, upload-time = "2020-11-23T03:59:15.045Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/07/bc/587a445451b253b285629263eb51c2d8e9bcea4fc97826266d186f96f558/pyserial-3.5-py2.py3-none-any.whl", hash = "sha256:c4451db6ba391ca6ca299fb3ec7bae67a5c55dde170964c7a14ceefec02f2cf0", size = 90585, upload-time = "2020-11-23T03:59:13.41Z" },
 ]
 
 [[package]]

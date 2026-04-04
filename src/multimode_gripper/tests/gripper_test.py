@@ -115,7 +115,7 @@ def grab_dataset(pose_path, target_position, target_force, force_threshold, save
 
     # Move to pose and wait for settling.
     robot_mot.move_and_wait(poses[0][0])
-    time.sleep(2.0)
+    time.sleep(5.0)
 
     sensor_process = multiprocessing.Process(
         target=sensorgrab,

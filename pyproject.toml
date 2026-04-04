@@ -8,6 +8,7 @@ dependencies = [
     "opencv-contrib-python>=4.13.0.92",
     "piper-sdk>=0.6.1",
     "pyagxarm",
+    "pyserial>=3.5",
     "pyrealsense2>=2.56.5.9235",
     "PyQt6>=6.0.0",
     "fonttools>=4.0.0",
