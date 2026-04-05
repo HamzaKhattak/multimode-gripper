@@ -66,17 +66,26 @@ class SensorCamera:
         )
 
 
-    def lowhighframecap(self, lowtime: int, hightime: int, lowgain: float = 1.0, highgain: float = 1.0) -> tuple[np.ndarray, np.ndarray]:
+    def lowhighframecap(self, lowtime: int, hightime: int, lowgain: float = 1.0, highgain: float = 1.0, light_type: str = 'white') -> tuple[np.ndarray, np.ndarray]:
         '''
         Captures two frames from the camera, one with low exposure and one with high exposure.
           The microcontroller is used to switch the whether the LED backlight is on or off.
         '''
-        self.serial_connection.write(b'0')  # Turn LEDs off for the low-exposure frame
+        c0 = b'0'
+        if light_type == 'white':
+            c1 = b'1'  # White LEDs on
+        elif light_type == 'rainbow':
+            c1 = b'r'  # Rainbow LEDs on
+        elif light_type == 'split':
+            c1 = b's'  # Split LEDs on
+        else:
+            raise ValueError(f"Invalid light_type '{light_type}'. Expected 'white', 'rainbow', or 'split'.")
+        self.serial_connection.write(c0)  # Turn LEDs off for the low-exposure frame
         self.cam.set(cv2.CAP_PROP_EXPOSURE,lowtime) #exposure is in ms or something for the ubuntu api
         self.cam.set(cv2.CAP_PROP_GAIN,lowgain)
         ret, frame1 = self.cam.read()
 
-        self.serial_connection.write(b'1')  # Turn LEDs on for the high-exposure frame
+        self.serial_connection.write(c1)  # Turn LEDs on for the high-exposure frame
         self.cam.set(cv2.CAP_PROP_EXPOSURE,hightime) #exposure is in ms or something for the ubuntu api
         self.cam.set(cv2.CAP_PROP_GAIN,highgain)
         ret, frame2 = self.cam.read()
