@@ -4,19 +4,30 @@ import serial
 from serial.tools import list_ports
 import time
 
+from multimode_gripper.utils.camera_check import open_camera_by_serial
+
 class SensorCamera:
     DEVICE_CODE = "RGBBL-001"
 
-    def __init__(self,serial_port="/dev/ttyUSB0", baud_rate=115200,capwidth=1280,capheight=720,exposuretime=100):
+    def __init__(
+        self,
+        camera_serial: str,
+        serial_port="/dev/ttyUSB0",
+        baud_rate=115200,
+        capwidth=1280,
+        capheight=720,
+        exposuretime=100,
+        fps: float = 30,
+    ):
         '''
         Initializes the camera and the serial connection to the microcontroller controlling the LED backlight.
          The camera is configured with the specified resolution and exposure time (check camera docs for allowed values)
         '''
-        self.cam = cv2.VideoCapture(-1)
+        self.cam = open_camera_by_serial(camera_serial, width=capwidth, height=capheight, fps=fps)
         self.cam.set(cv2.CAP_PROP_SETTINGS, 0)
         self.cam.set(cv2.CAP_PROP_FRAME_WIDTH,capwidth)
         self.cam.set(cv2.CAP_PROP_FRAME_HEIGHT,capheight)
-        self.cam.set(cv2.CAP_PROP_FPS, 30)
+        self.cam.set(cv2.CAP_PROP_FPS, fps)
         ret_val , cap_for_exposure = self.cam.read() #Need to call cam.read() first before fiddling with the exposure
         self.cam.set(cv2.CAP_PROP_AUTO_EXPOSURE, .75) #For some reason auto exposure off is 0.25 and 0.75 is on/off
         self.cam.set(cv2.CAP_PROP_GAIN,1)
@@ -108,9 +119,12 @@ class SensorCamera:
         ret, frame = self.cam.read()
         return frame
 
-def sensorgrab(stop_event, cap_params, q, save=False, save_path=None, live_view=False):
+def sensorgrab(stop_event, cap_params, q, save=False, save_path=None, live_view=False, camera_serial: str | None = None):
     # Create camera inside the worker process (required for Windows multiprocessing spawn).
-    cam = SensorCamera()
+    if camera_serial is None:
+        raise ValueError("sensorgrab requires a camera_serial value.")
+
+    cam = SensorCamera(camera_serial=camera_serial)
     try:
         if isinstance(cap_params, dict):
             cap_args = (

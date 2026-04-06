@@ -26,7 +26,7 @@ def _drain_latest(q):
     return latest
 
 
-def grab_dataset(pose_path, target_position, target_force, force_threshold, sensor_params,save_dir):
+def grab_dataset(pose_path, target_position, target_force, force_threshold, sensor_params, save_dir, camera_serial):
     save_dir = Path(save_dir)
     save_dir.mkdir(parents=True, exist_ok=True)
 
@@ -45,7 +45,7 @@ def grab_dataset(pose_path, target_position, target_force, force_threshold, sens
     robot_mot.open_gripper()  # Open the gripper before starting capture so the closing motion is fully captured in the dataset.  
     sensor_process = multiprocessing.Process(
         target=sensor_camera.sensorgrab,
-        args=(stop_event, sensor_params, q_sensor, True, save_dir, False),
+        args=(stop_event, sensor_params, q_sensor, True, save_dir, False, camera_serial),
         daemon=True,
     )
     realsense_process = multiprocessing.Process(
@@ -226,6 +226,7 @@ def main():
     parser.add_argument("--target-position", type=float, required=True, help="Gripper target position")
     parser.add_argument("--target-force", type=float, required=True, help="Gripper commanded force")
     parser.add_argument("--force-threshold", type=float, required=True, help="Stop threshold for force")
+    parser.add_argument("--camera-serial", type=str, required=True, help="Serial number of the non-RealSense sensor camera")
     parser.add_argument("--cap-paramfile", type=str, required=False, help="Path to JSON file containing camera capture parameters")
     args = parser.parse_args()
     cap_params = _load_json_file(args.cap_paramfile) if args.cap_paramfile else (100, 200, 1.0, 1.0, 'white')
@@ -236,6 +237,7 @@ def main():
         force_threshold=args.force_threshold,
         sensor_params=cap_params,
         save_dir=args.output_dir,
+        camera_serial=args.camera_serial,
     )
 
 
