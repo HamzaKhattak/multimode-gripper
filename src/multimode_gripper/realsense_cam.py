@@ -2,9 +2,6 @@ import pyrealsense2 as rs
 import cv2
 import numpy as np
 import time
-# Create a pipeline
-pipeline = rs.pipeline()
-config = rs.config()
 
 
 class RealsenseCam:

@@ -243,4 +243,7 @@ def main():
 
 if __name__ == "__main__":
     multiprocessing.freeze_support()
+    # Use spawn so child processes start with a clean interpreter and cannot
+    # inherit open V4L2 / RealSense device handles from the parent process.
+    multiprocessing.set_start_method("spawn")
     main()

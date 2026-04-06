@@ -145,20 +145,20 @@ def sensorgrab(stop_event, cap_params, q, save=False, save_path=None, live_view=
 
             if save and save_path is not None:
                 frame_id = int(timestamp * 1000)
-                low_image_path = save_path / f"sensor_color_{frame_id}.png"
-                high_image_path = save_path / f"sensor_depth_{frame_id}.png"
+                low_image_path = save_path / f"sensor_low_{frame_id}.png"
+                high_image_path = save_path / f"sensor_high_{frame_id}.png"
                 cv2.imwrite(str(low_image_path), low_image)
                 cv2.imwrite(str(high_image_path), high_image)
 
             if live_view:
-                cv2.imshow("Sensor Color Image", low_image)
+                cv2.imshow("Sensor Low Exposure Image", low_image)
                 cv2.waitKey(1)
 
             q.put(
                 {
                     "timestamp": timestamp,
-                    "sensor_color_path": str(low_image_path) if low_image_path else None,
-                    "sensor_depth_path": str(high_image_path) if high_image_path else None,
+                    "sensor_low_path": str(low_image_path) if low_image_path else None,
+                    "sensor_high_path": str(high_image_path) if high_image_path else None,
                 }
             )
     finally:
