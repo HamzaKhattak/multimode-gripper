@@ -1,6 +1,6 @@
 #include <FastLED.h>
 
-#define LED_PIN     12
+#define LED_PIN     2
 #define NUM_LEDS    12
 CRGB leds[NUM_LEDS];
 const char DEVICE_CODE[] = "RGBBL-001";

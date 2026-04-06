@@ -39,6 +39,7 @@ def grab_dataset(pose_path, target_position, target_force, force_threshold, sens
  
     with open(pose_path, "r", encoding="utf-8") as pose_file:
         poses = json.load(pose_file)
+    
     robot_mot.move_and_wait(poses[0][0])  # Move to the initial pose before starting capture to avoid including the movement to the initial pose in the dataset. 
     robot_mot.open_gripper()  # Open the gripper before starting capture so the closing motion is fully captured in the dataset.  
     sensor_process = multiprocessing.Process(
@@ -203,6 +204,7 @@ def grab_dataset(pose_path, target_position, target_force, force_threshold, sens
     metadata_path = save_dir / "dataset_records.json"
     with open(metadata_path, "w", encoding="utf-8") as records_file:
         json.dump(records, records_file, indent=2)
+    robot_mot.move_and_wait(poses[0][0])  # Move back to the initial pose at the end of the test.
     print(f"Saved {len(records)} records to {metadata_path}")
 
 
