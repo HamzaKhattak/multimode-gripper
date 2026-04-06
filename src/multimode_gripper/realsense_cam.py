@@ -5,14 +5,14 @@ import time
 
 
 class RealsenseCam:
+    _RESET_WAIT_S = 5.0  # Time to wait after a hardware reset for USB re-enumeration.
+
     def __init__(self):
         self.pipeline = rs.pipeline()
         self.config = rs.config()
-        self._maybe_reset_realsense()
         self.config.enable_stream(rs.stream.depth, 640, 480, rs.format.z16, 30)
         self.config.enable_stream(rs.stream.color, 1280, 720, rs.format.bgr8, 30)
-        # Enable frame dropping to prevent buffer overflow - old frames are dropped if new ones arrive
-        self.pipeline.start(self.config)
+        self._start_pipeline()
         # Clear any initial frames in the buffer
         for _ in range(5):
             try:
@@ -20,17 +20,33 @@ class RealsenseCam:
             except RuntimeError:
                 pass
 
-    def _maybe_reset_realsense(self) -> None:
+    def _start_pipeline(self) -> None:
         '''
-        When the RealSense camera is in a bad state from a previous run it may fail to start so we need to reset
+        Try to start the pipeline. If the device is in a bad state, perform a
+        hardware reset, wait for USB re-enumeration, then try once more.
         '''
-        if rs is None:
-            return
+        try:
+            self.pipeline.start(self.config)
+        except RuntimeError:
+            print("RealSense pipeline.start() failed — resetting device and retrying...")
+            self._hardware_reset()
+            # Re-create pipeline and config after reset so there are no stale handles.
+            self.pipeline = rs.pipeline()
+            self.config = rs.config()
+            self.config.enable_stream(rs.stream.depth, 640, 480, rs.format.z16, 30)
+            self.config.enable_stream(rs.stream.color, 1280, 720, rs.format.bgr8, 30)
+            self.pipeline.start(self.config)
+
+    def _hardware_reset(self) -> None:
+        '''
+        Reset all connected RealSense devices and wait long enough for USB
+        re-enumeration to complete before the caller opens the pipeline again.
+        '''
         try:
             ctx = rs.context()
             for dev in ctx.query_devices():
                 dev.hardware_reset()
-            time.sleep(1.0)
+            time.sleep(self._RESET_WAIT_S)
         except Exception:
             # Reset is best-effort only.
             pass
