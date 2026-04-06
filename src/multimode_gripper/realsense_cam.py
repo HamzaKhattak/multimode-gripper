@@ -5,7 +5,9 @@ import time
 
 
 class RealsenseCam:
-    _RESET_WAIT_S = 5.0  # Time to wait after a hardware reset for USB re-enumeration.
+    _RESET_WAIT_S = 5.0       # Time to wait after a hardware reset for USB re-enumeration.
+    _FIRST_FRAME_TIMEOUT_S = 8.0   # How long to wait for the first valid frame after pipeline.start().
+    _FIRST_FRAME_TIMEOUT_S_AFTER_RESET = 12.0  # Longer budget after a hardware reset.
 
     def __init__(self):
         self.pipeline = rs.pipeline()
@@ -13,32 +15,61 @@ class RealsenseCam:
         self.config.enable_stream(rs.stream.depth, 640, 480, rs.format.z16, 30)
         self.config.enable_stream(rs.stream.color, 1280, 720, rs.format.bgr8, 30)
         self._start_pipeline()
-        # Clear any initial frames in the buffer
-        for _ in range(5):
+
+    def _enable_streams(self) -> None:
+        self.config.enable_stream(rs.stream.depth, 640, 480, rs.format.z16, 30)
+        self.config.enable_stream(rs.stream.color, 1280, 720, rs.format.bgr8, 30)
+
+    def _wait_for_first_frame(self, timeout_s: float) -> bool:
+        '''
+        Block until a coherent depth+colour frameset is received or the timeout
+        expires.  Returns True if a valid frame arrived, False otherwise.
+        '''
+        deadline = time.time() + timeout_s
+        while time.time() < deadline:
+            remaining_ms = max(100, int((deadline - time.time()) * 1000))
             try:
-                self.pipeline.wait_for_frames(timeout_ms=100)
-            except RuntimeError:
+                frames = self.pipeline.wait_for_frames(timeout_ms=remaining_ms)
+                if frames.get_depth_frame() and frames.get_color_frame():
+                    return True
+            except Exception:
                 pass
+        return False
 
     def _start_pipeline(self) -> None:
         '''
-        Try to start the pipeline. If the device is in a bad state, perform a
-        hardware reset, wait for USB re-enumeration, then try once more.
-        Catches any exception (not just RuntimeError) because pyrealsense2 can
-        raise its own exception hierarchy which does not always inherit from
-        RuntimeError in all library builds.
+        Start the pipeline and verify that frames are actually flowing.
+        pipeline.start() succeeding is not sufficient — the camera may be in a
+        state where it opens without error but never delivers frames.
+        If that happens (or if start() itself raises), perform a hardware reset
+        and try once more with a longer frame-wait budget.
         '''
         try:
             self.pipeline.start(self.config)
+            if self._wait_for_first_frame(self._FIRST_FRAME_TIMEOUT_S):
+                return  # Camera is healthy and streaming.
+            print("RealSense pipeline started but no frames received — resetting device and retrying...")
         except Exception as exc:
             print(f"RealSense pipeline.start() failed ({type(exc).__name__}: {exc}) — resetting device and retrying...")
-            self._hardware_reset()
-            # Re-create pipeline and config after reset so there are no stale handles.
-            self.pipeline = rs.pipeline()
-            self.config = rs.config()
-            self.config.enable_stream(rs.stream.depth, 640, 480, rs.format.z16, 30)
-            self.config.enable_stream(rs.stream.color, 1280, 720, rs.format.bgr8, 30)
-            self.pipeline.start(self.config)
+
+        # Stop current pipeline before resetting so the device is fully released.
+        try:
+            self.pipeline.stop()
+        except Exception:
+            pass
+
+        self._hardware_reset()
+
+        # Re-create pipeline and config — stale handles cause a second failure.
+        self.pipeline = rs.pipeline()
+        self.config = rs.config()
+        self._enable_streams()
+        self.pipeline.start(self.config)
+        if not self._wait_for_first_frame(self._FIRST_FRAME_TIMEOUT_S_AFTER_RESET):
+            raise RuntimeError(
+                "RealSense camera failed to produce frames after hardware reset. "
+                "Check USB connection and that no other process holds the device."
+            )
 
     def _hardware_reset(self) -> None:
         '''
