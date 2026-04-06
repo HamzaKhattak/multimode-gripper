@@ -24,11 +24,14 @@ class RealsenseCam:
         '''
         Try to start the pipeline. If the device is in a bad state, perform a
         hardware reset, wait for USB re-enumeration, then try once more.
+        Catches any exception (not just RuntimeError) because pyrealsense2 can
+        raise its own exception hierarchy which does not always inherit from
+        RuntimeError in all library builds.
         '''
         try:
             self.pipeline.start(self.config)
-        except RuntimeError:
-            print("RealSense pipeline.start() failed — resetting device and retrying...")
+        except Exception as exc:
+            print(f"RealSense pipeline.start() failed ({type(exc).__name__}: {exc}) — resetting device and retrying...")
             self._hardware_reset()
             # Re-create pipeline and config after reset so there are no stale handles.
             self.pipeline = rs.pipeline()

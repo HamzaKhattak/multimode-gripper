@@ -75,10 +75,27 @@ def grab_dataset(pose_path, target_position, target_force, force_threshold, sens
             if latest_sensor is not None and latest_realsense is not None:
                 break
 
+            # Detect silent child-process crashes immediately rather than waiting
+            # for the full startup timeout. A dead process will never put frames
+            # into its queue, so there is no value in continuing to wait.
+            if not sensor_process.is_alive() and latest_sensor is None:
+                raise RuntimeError(
+                    f"Sensor camera process exited unexpectedly (exitcode={sensor_process.exitcode}) "
+                    "before producing any frames."
+                )
+            if not realsense_process.is_alive() and latest_realsense is None:
+                raise RuntimeError(
+                    f"RealSense process exited unexpectedly (exitcode={realsense_process.exitcode}) "
+                    "before producing any frames."
+                )
+
             if time.time() - startup_t0 > startup_timeout_s:
+                sensor_alive = sensor_process.is_alive()
+                realsense_alive = realsense_process.is_alive()
                 raise TimeoutError(
                     f"Camera worker startup timeout ({startup_timeout_s}s). "
-                    "Could not receive initial frames from both queues."
+                    f"sensor_got_frame={latest_sensor is not None} (alive={sensor_alive}), "
+                    f"realsense_got_frame={latest_realsense is not None} (alive={realsense_alive})."
                 )
 
             time.sleep(0.05)
