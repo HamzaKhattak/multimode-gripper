@@ -38,7 +38,7 @@ class RealsenseCam:
             # Reset is best-effort only.
             pass
 
-    def grab_frames(self) -> (np.ndarray, np.ndarray):
+    def grab_frames(self) -> tuple[np.ndarray | None, np.ndarray | None]:
         '''
         Grabs a pair of depth and color frames from the RealSense camera. Returns None, None if frames cannot be grabbed.
         '''
@@ -62,7 +62,7 @@ class RealsenseCam:
             # Timeout or error - return None
             return None, None
 
-    def _normalizeImg(img,low,high):
+    def _normalizeImg(self, img, low, high):
         '''
         Normalizes the input image to the range [0, 255] based on the provided low and high values.'''
         imgClip = np.clip(img, low, high)
@@ -97,7 +97,7 @@ class RealsenseCam:
                     break
 
         finally:
-            pipeline.stop()
+            self.pipeline.stop()
             cv2.destroyAllWindows()
 
 def realsensegrab(stop_event, q, save=False, save_path=None, live_view=False):

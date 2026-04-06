@@ -36,10 +36,11 @@ def grab_dataset(pose_path, target_position, target_force, force_threshold, sens
     robot_mot = robot_motion.RobotMotion(end_effector_use=True)
     robot = robot_mot.robot
     robot.set_speed_percent(30)
-
+ 
     with open(pose_path, "r", encoding="utf-8") as pose_file:
         poses = json.load(pose_file)
-
+    robot_mot.move_and_wait(poses[0][0])  # Move to the initial pose before starting capture to avoid including the movement to the initial pose in the dataset. 
+    robot_mot.open_gripper()  # Open the gripper before starting capture so the closing motion is fully captured in the dataset.  
     sensor_process = multiprocessing.Process(
         target=sensor_camera.sensorgrab,
         args=(stop_event, sensor_params, q_sensor, True, save_dir, False),
@@ -83,7 +84,7 @@ def grab_dataset(pose_path, target_position, target_force, force_threshold, sens
         # Start moving to the initial arm pose only after capture is active.
         move_start_t = time.time()
         while True:
-            pose_reached = robot_mot.move_non_blocking(poses[0][0])
+            pose_reached = robot_mot.move_non_blocking(poses[1][0])
 
             latest_sensor = _drain_latest(q_sensor) or latest_sensor
             latest_realsense = _drain_latest(q_realsense) or latest_realsense
@@ -117,8 +118,8 @@ def grab_dataset(pose_path, target_position, target_force, force_threshold, sens
                 target_position,
                 target_force,
                 force_threshold,
-                speed=0.1,
-                min_move=0.01,
+                speed=0.001,
+                min_move=0.0005,
             )
 
             latest_sensor = _drain_latest(q_sensor) or latest_sensor
@@ -158,8 +159,8 @@ def grab_dataset(pose_path, target_position, target_force, force_threshold, sens
                 release_target_position,
                 target_force,
                 float("inf"),
-                speed=0.1,
-                min_move=0.01,
+                speed=0.001,
+                min_move=0.0005,
             )
 
             latest_sensor = _drain_latest(q_sensor) or latest_sensor
