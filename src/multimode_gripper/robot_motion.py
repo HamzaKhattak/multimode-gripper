@@ -96,7 +96,7 @@ class RobotMotion:
         '''
         Open the gripper fully with the given force.
         '''
-        open_position = self.end_effector.OPTIONS.GRIPPER.MAX_WIDTH
+        open_position = .095
         self.end_effector.move_gripper(open_position, 3)
     
     def move_gripper_slowly(self, target_position: float, force : float,force_threshold: float, speed: float, min_move: float)-> (bool, float, float):
