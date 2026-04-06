@@ -5,6 +5,7 @@
 CRGB leds[NUM_LEDS];
 const char DEVICE_CODE[] = "RGBBL-001";
 
+// Define LED modes
 enum LedMode {
   MODE_OFF,
   MODE_WHITE,
@@ -15,11 +16,13 @@ enum LedMode {
 LedMode currentMode = MODE_WHITE;
 LedMode lastAppliedMode = MODE_OFF;
 
+// Function to set all LEDs to a specific color (on or off)
 void setLeds(bool on) {
   CRGB color = on ? CRGB(255, 255, 255) : CRGB::Black;
   fill_solid(leds, NUM_LEDS, color);
 }
 
+// Function to set LEDs in RGB split mode, where the first third are red, the second third are green, and the last third are blue
 void setRgbSplit() {
   int segmentSize = NUM_LEDS / 3;
   for (int i = 0; i < NUM_LEDS; i++) {
@@ -32,11 +35,12 @@ void setRgbSplit() {
     }
   }
 }
-
+// Function to set LEDs in a rainbow pattern
 void setRainbow() {
   fill_rainbow(leds, NUM_LEDS, 0, 255 / NUM_LEDS);
 }
 
+// Function to apply the current LED mode if it has changed since the last application
 void applyCurrentMode() {
   if (currentMode == lastAppliedMode) {
     return;
@@ -60,6 +64,7 @@ void applyCurrentMode() {
   lastAppliedMode = currentMode;
 }
 
+// Function to parse serial commands and update the current LED mode accordingly
 bool parseSerialCommand() {
   bool commandAccepted = false;
 
@@ -92,8 +97,9 @@ bool parseSerialCommand() {
   return commandAccepted;
 }
 
+// Function to wait for an initial command from the serial interface before proceeding with the main loop
 void waitForInitialCommand() {
-  const unsigned long announceIntervalMs = 1000;
+  const unsigned long announceIntervalMs = 500;
   unsigned long lastAnnounceMs = 0;
 
   while (true) {

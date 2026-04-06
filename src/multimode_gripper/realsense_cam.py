@@ -99,3 +99,41 @@ class RealsenseCam:
         finally:
             pipeline.stop()
             cv2.destroyAllWindows()
+
+def realsensegrab(stop_event, q, save=False, save_path=None, live_view=False):
+    # Create camera inside the worker process (required for Windows multiprocessing spawn).
+    cam = RealsenseCam()
+    try:
+        while not stop_event.is_set():
+            depth_image, color_image = cam.grab_frames()
+            if depth_image is None or color_image is None:
+                continue
+
+            timestamp = time.time()
+            color_image_path = None
+            depth_image_path = None
+
+            if save and save_path is not None:
+                frame_id = int(timestamp * 1000)
+                color_image_path = save_path / f"realsense_color_{frame_id}.png"
+                depth_image_path = save_path / f"realsense_depth_{frame_id}.png"
+                cv2.imwrite(str(color_image_path), color_image)
+                cv2.imwrite(str(depth_image_path), depth_image)
+
+            if live_view:
+                cv2.imshow("RealSense Color Image", color_image)
+                cv2.imshow("RealSense Depth Image", depth_image)
+                cv2.waitKey(1)
+
+            q.put(
+                {
+                    "timestamp": timestamp,
+                    "realsense_color_path": str(color_image_path) if color_image_path else None,
+                    "realsense_depth_path": str(depth_image_path) if depth_image_path else None,
+                }
+            )
+    finally:
+        if hasattr(cam, "pipeline"):
+            cam.pipeline.stop()
+        if live_view:
+            cv2.destroyAllWindows()

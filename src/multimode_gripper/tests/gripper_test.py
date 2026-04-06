@@ -14,80 +14,7 @@ from multimode_gripper import sensor_camera
 warnings.filterwarnings("ignore", category=DeprecationWarning)  # Due to Chinese text in docstring of pyAgxArm
 
 
-def sensorgrab(stop_event, cap_params, q, save=False, save_path=None, live_view=False):
-    # Create camera inside the worker process (required for Windows multiprocessing spawn).
-    cam = sensor_camera.SensorCamera()
-    try:
-        while not stop_event.is_set():
-            low_image, high_image = cam.lowhighframecap(*cap_params)
-            timestamp = time.time()
-            low_image_path = None
-            high_image_path = None
 
-            if save and save_path is not None:
-                frame_id = int(timestamp * 1000)
-                low_image_path = save_path / f"sensor_color_{frame_id}.png"
-                high_image_path = save_path / f"sensor_depth_{frame_id}.png"
-                cv2.imwrite(str(low_image_path), low_image)
-                cv2.imwrite(str(high_image_path), high_image)
-
-            if live_view:
-                cv2.imshow("Sensor Color Image", low_image)
-                cv2.waitKey(1)
-
-            q.put(
-                {
-                    "timestamp": timestamp,
-                    "sensor_color_path": str(low_image_path) if low_image_path else None,
-                    "sensor_depth_path": str(high_image_path) if high_image_path else None,
-                }
-            )
-    finally:
-        if hasattr(cam, "cam"):
-            cam.cam.release()
-        if hasattr(cam, "serial_connection"):
-            cam.serial_connection.close()
-        if live_view:
-            cv2.destroyAllWindows()
-
-
-def realsensegrab(stop_event, q, save=False, save_path=None, live_view=False):
-    # Create camera inside the worker process (required for Windows multiprocessing spawn).
-    cam = realsense_cam.RealsenseCam()
-    try:
-        while not stop_event.is_set():
-            depth_image, color_image = cam.grab_frames()
-            if depth_image is None or color_image is None:
-                continue
-
-            timestamp = time.time()
-            color_image_path = None
-            depth_image_path = None
-
-            if save and save_path is not None:
-                frame_id = int(timestamp * 1000)
-                color_image_path = save_path / f"realsense_color_{frame_id}.png"
-                depth_image_path = save_path / f"realsense_depth_{frame_id}.png"
-                cv2.imwrite(str(color_image_path), color_image)
-                cv2.imwrite(str(depth_image_path), depth_image)
-
-            if live_view:
-                cv2.imshow("RealSense Color Image", color_image)
-                cv2.imshow("RealSense Depth Image", depth_image)
-                cv2.waitKey(1)
-
-            q.put(
-                {
-                    "timestamp": timestamp,
-                    "realsense_color_path": str(color_image_path) if color_image_path else None,
-                    "realsense_depth_path": str(depth_image_path) if depth_image_path else None,
-                }
-            )
-    finally:
-        if hasattr(cam, "pipeline"):
-            cam.pipeline.stop()
-        if live_view:
-            cv2.destroyAllWindows()
 
 
 def _drain_latest(q):
@@ -97,7 +24,7 @@ def _drain_latest(q):
     return latest
 
 
-def grab_dataset(pose_path, target_position, target_force, force_threshold, save_dir):
+def grab_dataset(pose_path, target_position, target_force, force_threshold, sensor_params,save_dir):
     save_dir = Path(save_dir)
     save_dir.mkdir(parents=True, exist_ok=True)
 
@@ -113,17 +40,13 @@ def grab_dataset(pose_path, target_position, target_force, force_threshold, save
     with open(pose_path, "r", encoding="utf-8") as pose_file:
         poses = json.load(pose_file)
 
-    # Move to pose and wait for settling.
-    robot_mot.move_and_wait(poses[0][0])
-    time.sleep(5.0)
-
     sensor_process = multiprocessing.Process(
-        target=sensorgrab,
-        args=(stop_event, (50, 200, 1.0, 1.0), q_sensor, True, save_dir, False),
+        target=sensor_camera.sensorgrab,
+        args=(stop_event, sensor_params, q_sensor, True, save_dir, False),
         daemon=True,
     )
     realsense_process = multiprocessing.Process(
-        target=realsensegrab,
+        target=realsense_cam.realsensegrab,
         args=(stop_event, q_realsense, True, save_dir, False),
         daemon=True,
     )
@@ -134,10 +57,61 @@ def grab_dataset(pose_path, target_position, target_force, force_threshold, save
     records = []
     latest_sensor = None
     latest_realsense = None
-    start_time = time.time()
+    release_timeout_s = 60.0
+    startup_timeout_s = 20.0
+    move_to_pose_timeout_s = 30.0
     timeout_s = 60.0
 
     try:
+        # Warm up both capture workers before any robot movement starts.
+        startup_t0 = time.time()
+        while latest_sensor is None or latest_realsense is None:
+            latest_sensor = _drain_latest(q_sensor) or latest_sensor
+            latest_realsense = _drain_latest(q_realsense) or latest_realsense
+
+            if latest_sensor is not None and latest_realsense is not None:
+                break
+
+            if time.time() - startup_t0 > startup_timeout_s:
+                raise TimeoutError(
+                    f"Camera worker startup timeout ({startup_timeout_s}s). "
+                    "Could not receive initial frames from both queues."
+                )
+
+            time.sleep(0.05)
+
+        # Start moving to the initial arm pose only after capture is active.
+        move_start_t = time.time()
+        while True:
+            pose_reached = robot_mot.move_non_blocking(poses[0][0])
+
+            latest_sensor = _drain_latest(q_sensor) or latest_sensor
+            latest_realsense = _drain_latest(q_realsense) or latest_realsense
+
+            records.append(
+                {
+                    "timestamp": time.time(),
+                    "phase": "move_to_start_pose",
+                    "position": None,
+                    "force": None,
+                    "sensor": latest_sensor,
+                    "realsense": latest_realsense,
+                }
+            )
+
+            if pose_reached:
+                break
+
+            if time.time() - move_start_t > move_to_pose_timeout_s:
+                print(f"Timeout reached ({move_to_pose_timeout_s}s) while moving to initial pose.")
+                break
+
+            time.sleep(0.02)
+
+        # Remember the current opening so the release trajectory can be captured too.
+        release_target_position, _ = robot_mot.get_gripper_wf()
+
+        start_time = time.time()
         while True:
             status, current_position, current_force = robot_mot.move_gripper_slowly(
                 target_position,
@@ -153,6 +127,7 @@ def grab_dataset(pose_path, target_position, target_force, force_threshold, save
             records.append(
                 {
                     "timestamp": time.time(),
+                    "phase": "close_gripper",
                     "position": current_position,
                     "force": current_force,
                     "sensor": latest_sensor,
@@ -172,6 +147,46 @@ def grab_dataset(pose_path, target_position, target_force, force_threshold, save
 
             if time.time() - start_time > timeout_s:
                 print(f"Timeout reached ({timeout_s}s). Stopping capture.")
+                break
+
+            time.sleep(0.02)
+
+        # Re-open the gripper to the original opening so release is included in the dataset.
+        release_start_time = time.time()
+        while True:
+            status, current_position, current_force = robot_mot.move_gripper_slowly(
+                release_target_position,
+                target_force,
+                float("inf"),
+                speed=0.1,
+                min_move=0.01,
+            )
+
+            latest_sensor = _drain_latest(q_sensor) or latest_sensor
+            latest_realsense = _drain_latest(q_realsense) or latest_realsense
+
+            records.append(
+                {
+                    "timestamp": time.time(),
+                    "phase": "open_gripper",
+                    "position": current_position,
+                    "force": current_force,
+                    "sensor": latest_sensor,
+                    "realsense": latest_realsense,
+                }
+            )
+
+            release_position_reached = abs(current_position - release_target_position) <= 0.01
+            if release_position_reached:
+                print("Gripper returned to release position.")
+                break
+
+            if status:
+                print("Gripper reported completion while opening.")
+                break
+
+            if time.time() - release_start_time > release_timeout_s:
+                print(f"Timeout reached ({release_timeout_s}s) while opening gripper.")
                 break
 
             time.sleep(0.02)
@@ -207,13 +222,15 @@ def main():
     parser.add_argument("--target-position", type=float, required=True, help="Gripper target position")
     parser.add_argument("--target-force", type=float, required=True, help="Gripper commanded force")
     parser.add_argument("--force-threshold", type=float, required=True, help="Stop threshold for force")
+    parser.add_argument("--cap-paramfile", type=str, required=False, help="Path to JSON file containing camera capture parameters")
     args = parser.parse_args()
-
+    cap_params = json.load(open(args.cap_paramfile, "r", encoding="utf-8")) if args.cap_paramfile else (100, 200, 1.0, 1.0, 'white')
     grab_dataset(
         pose_path=args.safe_poses_file,
         target_position=args.target_position,
         target_force=args.target_force,
         force_threshold=args.force_threshold,
+        sensor_params=cap_params,
         save_dir=args.output_dir,
     )
 

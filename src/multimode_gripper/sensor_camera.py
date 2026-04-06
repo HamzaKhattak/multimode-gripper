@@ -8,6 +8,10 @@ class SensorCamera:
     DEVICE_CODE = "RGBBL-001"
 
     def __init__(self,serial_port="/dev/ttyUSB0", baud_rate=115200,capwidth=1280,capheight=720,exposuretime=100):
+        '''
+        Initializes the camera and the serial connection to the microcontroller controlling the LED backlight.
+         The camera is configured with the specified resolution and exposure time (check camera docs for allowed values)
+        '''
         self.cam = cv2.VideoCapture(-1)
         self.cam.set(cv2.CAP_PROP_SETTINGS, 0)
         self.cam.set(cv2.CAP_PROP_FRAME_WIDTH,capwidth)
@@ -25,6 +29,9 @@ class SensorCamera:
 
 
     def _try_handshake(self, port: str, baud_rate: int, handshake_timeout: float = 5.0):
+        '''
+        Tries to establish a serial connection and perform a handshake by waiting for the expected DEVICE_CODE.
+        Returns the serial connection if successful, or None if the handshake fails.'''
         try:
             connection = serial.Serial(port, baud_rate, timeout=0.25, write_timeout=1)
         except serial.SerialException:
@@ -47,6 +54,8 @@ class SensorCamera:
 
 
     def _connect_rgb_backlight(self, preferred_port: str, baud_rate: int):
+        '''
+        Attempts to connect to the RGB backlight controller by trying the preferred port first, then scanning all available ports.'''
         candidate_ports = []
 
         if preferred_port:
@@ -80,6 +89,7 @@ class SensorCamera:
             c1 = b's'  # Split LEDs on
         else:
             raise ValueError(f"Invalid light_type '{light_type}'. Expected 'white', 'rainbow', or 'split'.")
+        
         self.serial_connection.write(c0)  # Turn LEDs off for the low-exposure frame
         self.cam.set(cv2.CAP_PROP_EXPOSURE,lowtime) #exposure is in ms or something for the ubuntu api
         self.cam.set(cv2.CAP_PROP_GAIN,lowgain)
@@ -97,4 +107,50 @@ class SensorCamera:
         '''
         ret, frame = self.cam.read()
         return frame
-    
+
+def sensorgrab(stop_event, cap_params, q, save=False, save_path=None, live_view=False):
+    # Create camera inside the worker process (required for Windows multiprocessing spawn).
+    cam = SensorCamera()
+    try:
+        if isinstance(cap_params, dict):
+            cap_args = (
+                cap_params.get("lowtime", 100),
+                cap_params.get("hightime", 200),
+                cap_params.get("lowgain", 1.0),
+                cap_params.get("highgain", 1.0),
+                cap_params.get("light_type", "white"),
+            )
+        else:
+            cap_args = tuple(cap_params)
+
+        while not stop_event.is_set():
+            low_image, high_image = cam.lowhighframecap(*cap_args)
+            timestamp = time.time()
+            low_image_path = None
+            high_image_path = None
+
+            if save and save_path is not None:
+                frame_id = int(timestamp * 1000)
+                low_image_path = save_path / f"sensor_color_{frame_id}.png"
+                high_image_path = save_path / f"sensor_depth_{frame_id}.png"
+                cv2.imwrite(str(low_image_path), low_image)
+                cv2.imwrite(str(high_image_path), high_image)
+
+            if live_view:
+                cv2.imshow("Sensor Color Image", low_image)
+                cv2.waitKey(1)
+
+            q.put(
+                {
+                    "timestamp": timestamp,
+                    "sensor_color_path": str(low_image_path) if low_image_path else None,
+                    "sensor_depth_path": str(high_image_path) if high_image_path else None,
+                }
+            )
+    finally:
+        if hasattr(cam, "cam"):
+            cam.cam.release()
+        if hasattr(cam, "serial_connection"):
+            cam.serial_connection.close()
+        if live_view:
+            cv2.destroyAllWindows()
