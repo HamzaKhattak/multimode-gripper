@@ -27,7 +27,7 @@ def _drain_latest(q):
 
 
 def grab_dataset(
-    pose_path,
+    poses,
     target_position,
     target_force,
     force_threshold,
@@ -57,7 +57,7 @@ def grab_dataset(
         realsense_save_fps = sensor_params.get("realsense_save_fps", None)
         realsense_unused_frame_mode = sensor_params.get("realsense_unused_frame_mode", "discard")
  
-    poses = _load_json_file(pose_path)
+    
     
     robot_mot.move_and_wait(poses[0][0])  # Move to the initial pose before starting capture to avoid including the movement to the initial pose in the dataset. 
     robot_mot.open_gripper()  # Open the gripper before starting capture so the closing motion is fully captured in the dataset.  
@@ -283,8 +283,9 @@ def main():
     parser.add_argument("--cap-paramfile", type=str, required=False, help="Path to JSON file containing camera capture parameters")
     args = parser.parse_args()
     cap_params = _load_json_file(args.cap_paramfile) if args.cap_paramfile else (100, 200, 1.0, 1.0, 'white')
+    poses = _load_json_file(args.safe_poses_file)
     grab_dataset(
-        pose_path=args.safe_poses_file,
+        poses=poses,
         target_position=args.target_position,
         target_force=args.target_force,
         force_threshold=args.force_threshold,

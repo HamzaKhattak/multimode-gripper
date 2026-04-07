@@ -1,6 +1,6 @@
 ﻿{
   "lowtime": 50,
-  "hightime": 250,
+  "hightime": 5,
   "lowgain": 1.0,
   "highgain": 1.0,
   "light_type": "white",
