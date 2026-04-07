@@ -3,5 +3,9 @@
   "hightime": 250,
   "lowgain": 1.0,
   "highgain": 1.0,
-  "light_type": "white"
+  "light_type": "white",
+  "save_fps": 5,
+  "unused_frame_mode": "discard",
+  "realsense_save_fps": 5,
+  "realsense_unused_frame_mode": "discard"
 }

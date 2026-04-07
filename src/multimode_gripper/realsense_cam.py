@@ -147,14 +147,97 @@ class RealsenseCam:
             self.pipeline.stop()
             cv2.destroyAllWindows()
 
-def realsensegrab(stop_event, q, save=False, save_path=None, live_view=False):
+def realsensegrab(
+    stop_event,
+    q,
+    save=False,
+    save_path=None,
+    live_view=False,
+    save_fps: float | None = None,
+    unused_frame_mode: str = "discard",
+):
     # Create camera inside the worker process (required for Windows multiprocessing spawn).
     cam = RealsenseCam()
     try:
+        unused_frame_mode = str(unused_frame_mode).lower()
+        if save_fps is not None:
+            save_fps = float(save_fps)
+            if save_fps <= 0:
+                raise ValueError("save_fps must be > 0 when provided.")
+
+        if unused_frame_mode not in {"discard", "average"}:
+            raise ValueError("unused_frame_mode must be either 'discard' or 'average'.")
+
+        save_interval_s = (1.0 / save_fps) if (save and save_fps is not None) else None
+        next_output_t = time.perf_counter() if save_interval_s is not None else None
+
+        pending_depth_latest = None
+        pending_color_latest = None
+        pending_depth_acc = None
+        pending_color_acc = None
+        pending_count = 0
+
         while not stop_event.is_set():
             depth_image, color_image = cam.grab_frames()
             if depth_image is None or color_image is None:
                 continue
+
+            now_perf = time.perf_counter()
+            out_depth = depth_image
+            out_color = color_image
+
+            if save_interval_s is not None:
+                assert next_output_t is not None
+
+                if unused_frame_mode == "discard":
+                    pending_depth_latest = depth_image
+                    pending_color_latest = color_image
+                else:
+                    if pending_depth_acc is None:
+                        pending_depth_acc = depth_image.astype(np.float32)
+                        pending_color_acc = color_image.astype(np.float32)
+                    else:
+                        pending_depth_acc += depth_image
+                        pending_color_acc += color_image
+                pending_count += 1
+
+                if now_perf < next_output_t:
+                    if live_view:
+                        cv2.imshow("RealSense Color Image", color_image)
+                        cv2.imshow("RealSense Depth Image", depth_image)
+                        cv2.waitKey(1)
+                    continue
+
+                if unused_frame_mode == "discard":
+                    if pending_depth_latest is None or pending_color_latest is None:
+                        continue
+                    out_depth = pending_depth_latest
+                    out_color = pending_color_latest
+                else:
+                    if pending_depth_acc is None or pending_color_acc is None or pending_count == 0:
+                        continue
+
+                    depth_avg = np.rint(pending_depth_acc / pending_count)
+                    color_avg = np.rint(pending_color_acc / pending_count)
+
+                    if np.issubdtype(depth_image.dtype, np.integer):
+                        d_info = np.iinfo(depth_image.dtype)
+                        depth_avg = np.clip(depth_avg, d_info.min, d_info.max)
+                    out_depth = depth_avg.astype(depth_image.dtype)
+
+                    if np.issubdtype(color_image.dtype, np.integer):
+                        c_info = np.iinfo(color_image.dtype)
+                        color_avg = np.clip(color_avg, c_info.min, c_info.max)
+                    out_color = color_avg.astype(color_image.dtype)
+
+                pending_depth_latest = None
+                pending_color_latest = None
+                pending_depth_acc = None
+                pending_color_acc = None
+                pending_count = 0
+
+                while next_output_t <= now_perf:
+                    next_output_t += save_interval_s
 
             timestamp = time.time()
             color_image_path = None
@@ -164,12 +247,12 @@ def realsensegrab(stop_event, q, save=False, save_path=None, live_view=False):
                 frame_id = int(timestamp * 1000)
                 color_image_path = save_path / f"realsense_color_{frame_id}.png"
                 depth_image_path = save_path / f"realsense_depth_{frame_id}.png"
-                cv2.imwrite(str(color_image_path), color_image)
-                cv2.imwrite(str(depth_image_path), depth_image)
+                cv2.imwrite(str(color_image_path), out_color)
+                cv2.imwrite(str(depth_image_path), out_depth)
 
             if live_view:
-                cv2.imshow("RealSense Color Image", color_image)
-                cv2.imshow("RealSense Depth Image", depth_image)
+                cv2.imshow("RealSense Color Image", out_color)
+                cv2.imshow("RealSense Depth Image", out_depth)
                 cv2.waitKey(1)
 
             q.put(

@@ -26,7 +26,15 @@ def _drain_latest(q):
     return latest
 
 
-def grab_dataset(pose_path, target_position, target_force, force_threshold, sensor_params, save_dir, camera_serial):
+def grab_dataset(
+    pose_path,
+    target_position,
+    target_force,
+    force_threshold,
+    sensor_params,
+    save_dir,
+    camera_serial,
+):
     save_dir = Path(save_dir)
     save_dir.mkdir(parents=True, exist_ok=True)
 
@@ -38,6 +46,16 @@ def grab_dataset(pose_path, target_position, target_force, force_threshold, sens
     robot_mot = robot_motion.RobotMotion(end_effector_use=True)
     robot = robot_mot.robot
     robot.set_speed_percent(30)
+
+    sensor_save_fps = None
+    sensor_unused_frame_mode = "discard"
+    realsense_save_fps = None
+    realsense_unused_frame_mode = "discard"
+    if isinstance(sensor_params, dict):
+        sensor_save_fps = sensor_params.get("save_fps", None)
+        sensor_unused_frame_mode = sensor_params.get("unused_frame_mode", "discard")
+        realsense_save_fps = sensor_params.get("realsense_save_fps", None)
+        realsense_unused_frame_mode = sensor_params.get("realsense_unused_frame_mode", "discard")
  
     poses = _load_json_file(pose_path)
     
@@ -45,12 +63,30 @@ def grab_dataset(pose_path, target_position, target_force, force_threshold, sens
     robot_mot.open_gripper()  # Open the gripper before starting capture so the closing motion is fully captured in the dataset.  
     sensor_process = multiprocessing.Process(
         target=sensor_camera.sensorgrab,
-        args=(stop_event, sensor_params, q_sensor, True, save_dir, False, camera_serial),
+        args=(
+            stop_event,
+            sensor_params,
+            q_sensor,
+            True,
+            save_dir,
+            False,
+            camera_serial,
+            sensor_save_fps,
+            sensor_unused_frame_mode,
+        ),
         daemon=True,
     )
     realsense_process = multiprocessing.Process(
         target=realsense_cam.realsensegrab,
-        args=(stop_event, q_realsense, True, save_dir, False),
+        args=(
+            stop_event,
+            q_realsense,
+            True,
+            save_dir,
+            False,
+            realsense_save_fps,
+            realsense_unused_frame_mode,
+        ),
         daemon=True,
     )
 
