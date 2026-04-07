@@ -133,7 +133,7 @@ def grab_dataset(pose_path, target_position, target_force, force_threshold, sens
 
         start_time = time.time()
         while True:
-            status, current_position, current_force = robot_mot.move_gripper_slowly(
+            status, current_position, current_force = robot_mot.grab_slowly(
                 target_position,
                 target_force,
                 force_threshold,
@@ -174,12 +174,12 @@ def grab_dataset(pose_path, target_position, target_force, force_threshold, sens
         # Re-open the gripper to the original opening so release is included in the dataset.
         release_start_time = time.time()
         while True:
-            status, current_position, current_force = robot_mot.move_gripper_slowly(
-                release_target_position,
-                target_force,
-                float("inf"),
-                speed=0.001,
+            status, current_position, current_force = robot_mot.release_slowly(
+                release_force_threshold=.1,
+                slow_speed=0.001,
+                fast_speed=0.005,
                 min_move=0.0005,
+                target_position=release_target_position,
             )
 
             latest_sensor = _drain_latest(q_sensor) or latest_sensor

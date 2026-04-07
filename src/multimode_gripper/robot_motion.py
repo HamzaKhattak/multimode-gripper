@@ -25,6 +25,13 @@ class RobotMotion:
             self.robot.set_payload(self.robot.OPTIONS.PAYLOAD.FULL)
         self._last_commanded_pose = None
         self._last_commanded_gripper_pos = None
+        self._last_slow_gripper_setpoint = None
+        self._slow_gripper_force_baseline = None
+        self._force_contact_detected = False
+        self._last_release_target_pos = None
+        self._last_release_setpoint = None
+        self._release_time_track = time.perf_counter()
+        self._release_distance_correction = 0
         self.gripper_path = []
         self.time_track = time.perf_counter()
         self.distance_to_move_correction = 0
@@ -98,24 +105,126 @@ class RobotMotion:
         '''
         open_position = .095
         self.end_effector.move_gripper(open_position, 3)
+
+    def _get_max_release_force(self, measured_force: float) -> float:
+        '''
+        Return fixed max force command for release motions.
+        '''
+        return 3.0
+
+    def release_slowly(
+        self,
+        release_force_threshold: float,
+        slow_speed: float,
+        fast_speed: float,
+        min_move: float,
+        target_position: float = 0.095,
+    ) -> tuple[bool, float, float]:
+        '''
+        Non-blocking gripper release.
+
+        Open the gripper toward target_position. While gripping force is above
+        release_force_threshold, move with slow_speed. Once force is below threshold,
+        move with fast_speed. Call repeatedly until the returned `done` is True.
+        '''
+        current_position, current_force = self.get_gripper_wf()
+
+        if self._last_release_target_pos != target_position:
+            self._last_release_target_pos = target_position
+            self._last_release_setpoint = current_position
+            self._release_time_track = time.perf_counter()
+            self._release_distance_correction = 0
+
+        # Use the commanded trajectory as reference so progress continues even
+        # when measured width updates lag while force is still decaying.
+        direction = 1.0 if target_position >= current_position else -1.0
+        if self._last_release_setpoint is None:
+            self._last_release_setpoint = current_position
+
+        if direction > 0:
+            base_position = max(current_position, self._last_release_setpoint)
+        else:
+            base_position = min(current_position, self._last_release_setpoint)
+
+        distance_to_target = abs(target_position - base_position)
+        if distance_to_target <= 0:
+            return True, current_position, current_force
+
+        active_speed = fast_speed if current_force <= release_force_threshold else slow_speed
+
+        current_time = time.perf_counter()
+        dt = current_time - self._release_time_track
+        self._release_time_track = current_time
+        proposed_move = (active_speed * dt) + self._release_distance_correction
+
+        if proposed_move >= distance_to_target:
+            distance_to_move = distance_to_target
+            self._release_distance_correction = 0
+        elif proposed_move >= min_move:
+            distance_to_move = proposed_move
+            self._release_distance_correction = 0
+        else:
+            self._release_distance_correction = proposed_move
+            distance_to_move = 0
+
+        if distance_to_move == 0:
+            return False, current_position, current_force
+
+        if direction > 0:
+            new_position = min(target_position, base_position + distance_to_move)
+        else:
+            new_position = max(target_position, base_position - distance_to_move)
+
+        self._last_release_setpoint = new_position
+        self.end_effector.move_gripper(new_position, 3.0)
+        return False, current_position, current_force
     
-    def move_gripper_slowly(self, target_position: float, force : float,force_threshold: float, speed: float, min_move: float)-> (bool, float, float):
+    def grab_slowly(self, target_position: float, force : float,force_threshold: float, speed: float, min_move: float)-> tuple[bool, float, float]:
         '''
         Move the gripper to the target position in small steps to ensure a smooth motion.
         Should be called in a loop until it returns True, which indicates the target position or force has been reached.
         Returns true when the target position is reached, False otherwise. Also returns the position and force for logging purposes.
         '''
+        current_position, current_force = self.get_gripper_wf()
         # If this is the first call for this target, reset timing and correction state.
         if self._last_commanded_gripper_pos != target_position:
             self.time_track = time.perf_counter()
             self._last_commanded_gripper_pos = target_position
             self.distance_to_move_correction = 0
+            self._last_slow_gripper_setpoint = current_position
+            self._slow_gripper_force_baseline = current_force
+            self._force_contact_detected = False
 
+        # Detect first contact and switch to cumulative setpoint updates so we do not
+        # keep sending the same command when measured position stalls under load.
+        if self._slow_gripper_force_baseline is None:
+            self._slow_gripper_force_baseline = current_force
 
-        current_position, current_force = self.get_gripper_wf()
-        distance_to_target = abs(target_position - current_position)
-        #If we are already at the target position or the force is greater than or equal to the target force, we are done and can return true.
-        if distance_to_target == 0 or current_force >= force_threshold:
+        if np.isfinite(force_threshold):
+            contact_force_delta_threshold = max(0.05, 0.1 * max(abs(force_threshold), 1.0))
+        else:
+            contact_force_delta_threshold = max(0.05, 0.1 * max(abs(force), 1.0))
+
+        force_delta_from_start = abs(current_force - self._slow_gripper_force_baseline)
+        if force_delta_from_start >= contact_force_delta_threshold:
+            self._force_contact_detected = True
+
+        direction = 1.0 if target_position >= current_position else -1.0
+        if self._last_slow_gripper_setpoint is None:
+            self._last_slow_gripper_setpoint = current_position
+
+        if self._force_contact_detected:
+            if direction > 0:
+                base_position = max(current_position, self._last_slow_gripper_setpoint)
+            else:
+                base_position = min(current_position, self._last_slow_gripper_setpoint)
+        else:
+            base_position = current_position
+
+        distance_to_target = abs(target_position - base_position)
+        # If we are already at target (based on commanded trajectory) or at force threshold,
+        # finish this motion.
+        if distance_to_target <= 0 or current_force >= force_threshold:
             return True, current_position, current_force
         
         #Find how much to move based on speed and time from last call, and apply correction from previous moves if we were below the minimum move threshold    
@@ -144,10 +253,16 @@ class RobotMotion:
             return False, current_position, current_force
         
         #Find where to move
-        if current_position < target_position:
-            new_position = current_position + distance_to_move
+        if direction > 0:
+            new_position = base_position + distance_to_move
+            if new_position > target_position:
+                new_position = target_position
         else:
-            new_position = current_position - distance_to_move
+            new_position = base_position - distance_to_move
+            if new_position < target_position:
+                new_position = target_position
+
+        self._last_slow_gripper_setpoint = new_position
         self.end_effector.move_gripper(new_position, force)
         return False, current_position, current_force
 
